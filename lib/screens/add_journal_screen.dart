@@ -7,6 +7,7 @@ import '../models/journal.dart';
 import '../providers/journal_provider.dart';
 import '../utils/constants.dart';
 import '../utils/date_formatter.dart';
+import '../utils/permission_handler.dart' as ph;
 
 class AddJournalScreen extends StatefulWidget {
   final String? journalId;
@@ -51,6 +52,7 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
 
   @override
   void dispose() {
+    // Efisiensi resource: dispose semua controller saat widget dihapus dari tree
     _titleController.dispose();
     _locationController.dispose();
     _storyController.dispose();
@@ -58,6 +60,23 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
   }
 
   Future<void> _pickImage() async {
+    // Web tidak perlu permission handler
+    if (kIsWeb) {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+      );
+      if (picked != null) setState(() => _imagePath = picked.path);
+      return;
+    }
+
+    // Android: cek permission galeri dulu
+    if (!mounted) return;
+    final hasPermission =
+        await ph.AppPermissionHandler.requestStoragePermission(context);
+    if (!hasPermission) return;
+
     final picker = ImagePicker();
     final picked = await picker.pickImage(
       source: ImageSource.gallery,
@@ -69,11 +88,19 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
   }
 
   Future<void> _pickFromCamera() async {
-    // Camera not supported on web, fallback to gallery
+    // Web: fallback ke galeri
     if (kIsWeb) {
       _pickImage();
       return;
     }
+
+    // Android: cek permission kamera dulu
+    if (!mounted) return;
+    final hasPermission = await ph.AppPermissionHandler.requestCameraPermission(
+      context,
+    );
+    if (!hasPermission) return;
+
     final picker = ImagePicker();
     final picked = await picker.pickImage(
       source: ImageSource.camera,
@@ -113,34 +140,45 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
 
     setState(() => _isSaving = true);
 
-    final provider = context.read<JournalProvider>();
-    final now = DateTime.now();
+    try {
+      final provider = context.read<JournalProvider>();
+      final now = DateTime.now();
 
-    if (_isEditing) {
-      final journal = provider.getJournalById(widget.journalId!);
-      if (journal != null) {
-        journal.title = _titleController.text.trim();
-        journal.location = _locationController.text.trim();
-        journal.travelDate = _selectedDate;
-        journal.story = _storyController.text.trim();
-        journal.imagePath = _imagePath;
-        await provider.updateJournal(journal);
+      if (_isEditing) {
+        final journal = provider.getJournalById(widget.journalId!);
+        if (journal != null) {
+          journal.title = _titleController.text.trim();
+          journal.location = _locationController.text.trim();
+          journal.travelDate = _selectedDate;
+          journal.story = _storyController.text.trim();
+          journal.imagePath = _imagePath;
+          await provider.updateJournal(journal);
+        }
+      } else {
+        final journal = Journal(
+          id: now.millisecondsSinceEpoch.toString(),
+          title: _titleController.text.trim(),
+          location: _locationController.text.trim(),
+          travelDate: _selectedDate,
+          story: _storyController.text.trim(),
+          imagePath: _imagePath,
+          createdAt: now,
+        );
+        await provider.addJournal(journal);
       }
-    } else {
-      final journal = Journal(
-        id: now.millisecondsSinceEpoch.toString(),
-        title: _titleController.text.trim(),
-        location: _locationController.text.trim(),
-        travelDate: _selectedDate,
-        story: _storyController.text.trim(),
-        imagePath: _imagePath,
-        createdAt: now,
-      );
-      await provider.addJournal(journal);
-    }
 
-    if (mounted) {
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      // Error handling: tampilkan snackbar jika gagal simpan
+      if (mounted) {
+        setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal menyimpan jurnal: ${e.toString()}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
   }
 
@@ -220,7 +258,7 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
                   color: AppColors.surface,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: AppColors.textMuted.withOpacity(0.3),
+                    color: AppColors.textMuted.withValues(alpha: 0.3),
                   ),
                 ),
                 child: Row(
@@ -347,9 +385,8 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: AppColors.primary.withOpacity(0.3),
+          color: AppColors.primary.withValues(alpha: 0.3),
           width: 1.5,
-          style: BorderStyle.solid,
         ),
       ),
       child: Column(
@@ -358,13 +395,13 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
           Icon(
             Icons.add_photo_alternate_outlined,
             size: 48,
-            color: AppColors.primary.withOpacity(0.4),
+            color: AppColors.primary.withValues(alpha: 0.4),
           ),
           const SizedBox(height: 8),
           Text(
             'Add a cover photo',
             style: AppTextStyles.bodyMedium.copyWith(
-              color: AppColors.primary.withOpacity(0.6),
+              color: AppColors.primary.withValues(alpha: 0.6),
             ),
           ),
         ],
@@ -390,6 +427,7 @@ class _AddJournalScreenState extends State<AddJournalScreen> {
                   height: 200,
                   width: double.infinity,
                   fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => _buildImagePlaceholder(),
                 ),
         ),
         Positioned(

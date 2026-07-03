@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../utils/constants.dart';
+import '../utils/permission_handler.dart' as ph;
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -32,6 +33,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _pickPhoto() async {
+    final hasPermission =
+        await ph.AppPermissionHandler.requestStoragePermission(context);
+    if (!hasPermission) return;
+
     final picker = ImagePicker();
     final picked = await picker.pickImage(
       source: ImageSource.gallery,

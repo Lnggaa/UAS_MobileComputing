@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/journal_provider.dart';
 import '../utils/constants.dart';
+import '../utils/permission_handler.dart' as ph;
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -48,6 +49,13 @@ class ProfileScreen extends StatelessWidget {
                   children: [
                     GestureDetector(
                       onTap: () async {
+                        final hasPermission =
+                            await ph
+                                .AppPermissionHandler.requestStoragePermission(
+                              context,
+                            );
+                        if (!hasPermission) return;
+
                         final picker = ImagePicker();
                         final picked = await picker.pickImage(
                           source: ImageSource.gallery,
